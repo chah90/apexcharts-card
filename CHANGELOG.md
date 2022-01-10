@@ -1,3 +1,17 @@
+### [1.10.1-dev.2](https://github.com/RomRider/apexcharts-card/compare/v1.10.1-dev.1...v1.10.1-dev.2) (2021-11-04)
+
+
+### Bug Fixes
+
+* `update_interval` was broken ([31d2fb7](https://github.com/RomRider/apexcharts-card/commit/31d2fb770555d0ec58d03de89bc0b4512ed03f68))
+
+### [1.10.1-dev.1](https://github.com/RomRider/apexcharts-card/compare/v1.10.0...v1.10.1-dev.1) (2021-10-24)
+
+
+### Bug Fixes
+
+* Support for fire-dom-event with browser-mod ([3dc9625](https://github.com/RomRider/apexcharts-card/commit/3dc962522d1e776202acea8be7e2b2dafe1fdd23)), closes [#196](https://github.com/RomRider/apexcharts-card/issues/196)
+
 ## [1.10.0](https://github.com/RomRider/apexcharts-card/compare/v1.9.0...v1.10.0) (2021-10-24)
 
 
