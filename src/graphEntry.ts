@@ -17,6 +17,7 @@ import parse from 'parse-duration';
 import SparkMD5 from 'spark-md5';
 import { ChartCardSpanExtConfig } from './types-config';
 import * as pjson from '../package.json';
+import { Moment } from 'moment';
 
 export default class GraphEntry {
   private _computedHistory?: EntityCachePoints;
@@ -46,6 +47,8 @@ export default class GraphEntry {
   private _realStart: Date;
 
   private _realEnd: Date;
+
+  private _groupByMonths: number;
 
   private _groupByDurationMs: number;
 
@@ -77,9 +80,16 @@ export default class GraphEntry {
     this._func = aggregateFuncMap[config.group_by.func];
     this._realEnd = new Date();
     this._realStart = new Date();
+    if (this._config.group_by.duration.includes('month')) {
+      this._groupByMonths = parse(this._config.group_by.duration.replace('month', 'ms'))!;
+      this._groupByDurationMs = 0;
+    } else {
+      this._groupByDurationMs = parse(this._config.group_by.duration)!;
+      this._groupByMonths = 0;
+    }
     // Valid because tested during init;
     // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
-    this._groupByDurationMs = parse(this._config.group_by.duration)!;
+
     this._md5Config = SparkMD5.hash(`${this._graphSpan}${JSON.stringify(this._config)}${JSON.stringify(span)}`);
   }
 
@@ -181,9 +191,19 @@ export default class GraphEntry {
   public async _updateHistory(start: Date, end: Date): Promise<boolean> {
     let startHistory = new Date(start);
     if (this._config.group_by.func !== 'raw') {
-      const range = end.getTime() - start.getTime();
-      const nbBuckets = Math.floor(range / this._groupByDurationMs) + (range % this._groupByDurationMs > 0 ? 1 : 0);
-      startHistory = new Date(end.getTime() - (nbBuckets + 1) * this._groupByDurationMs);
+      if (this._groupByMonths > 0) {
+        let currentStart: Moment = moment(end.getTime());
+        while (start.getTime() - 1 <= currentStart.valueOf()) {
+          currentStart = currentStart.subtract(this._groupByMonths, 'months');
+        }
+		console.log('MS Start: ' + start.getTime() + ' MS Current: ' +  currentStart.valueOf());
+        startHistory = currentStart.toDate();
+		console.log('Start: ' + start + ' End: ' + end + ' History Start: ' + startHistory);
+      } else {
+        const range = end.getTime() - start.getTime();
+        const nbBuckets = Math.floor(range / this._groupByDurationMs) + (range % this._groupByDurationMs > 0 ? 1 : 0);
+        startHistory = new Date(end.getTime() - (nbBuckets + 1) * this._groupByDurationMs);
+      }
     }
     if (!this._entityState || this._updating) return false;
     this._updating = true;
@@ -395,7 +415,13 @@ export default class GraphEntry {
   }
 
   private _dataBucketer(history: EntityEntryCache, timeRange: DateRange): HistoryBuckets {
-    const ranges = Array.from(timeRange.reverseBy('milliseconds', { step: this._groupByDurationMs })).reverse();
+    let ranges;
+    if (this._groupByMonths > 0) {
+      ranges = Array.from(timeRange.reverseBy('months', { step: this._groupByMonths })).reverse();
+      console.log('used ranges: ' + JSON.stringify(ranges));
+    } else {
+      ranges = Array.from(timeRange.reverseBy('milliseconds', { step: this._groupByDurationMs })).reverse();
+    }
     // const res: EntityCachePoints[] = [[]];
     const buckets: HistoryBuckets = [];
     ranges.forEach((range, index) => {
