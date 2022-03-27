@@ -6,6 +6,7 @@ import parse from 'parse-duration';
 import { ChartCardExternalConfig, ChartCardPrettyTime, ChartCardSeriesExternalConfig } from './types-config';
 import { DEFAULT_FLOAT_PRECISION, DEFAULT_MAX, DEFAULT_MIN, moment, NO_VALUE } from './const';
 import { HomeAssistant, LovelaceConfig } from 'custom-card-helpers';
+import {unitOfTime} from 'moment';
 
 export function compress(data: unknown): string {
   return lzStringCompress(JSON.stringify(data));
@@ -120,21 +121,30 @@ export function computeTextColor(backgroundColor: string): string {
 }
 
 export function validateInterval(interval: string, prefix: string): number {
-  if (interval.includes('month')) {
-    const parsed = parse(interval.replace('month', 'ms'));
-    if (parsed === null) {
-      throw new Error(`'${prefix}: ${interval}' is not a valid range of time`);
-    }
-    const end = moment().endOf('month');
-    const start = moment(end).subtract(parsed, 'months');
-    return end.valueOf() - start.valueOf();
-  } else {
-    const parsed = parse(interval);
-    if (parsed === null) {
-      throw new Error(`'${prefix}: ${interval}' is not a valid range of time`);
-    }
-    return parsed;
+  if (interval.includes('year')) {
+    return parseByTimeUnit(interval, prefix, 'year');
   }
+  if (interval.includes('month')) {
+    return parseByTimeUnit(interval, prefix, 'month');
+  }
+  if (interval.includes('day')) {
+    return parseByTimeUnit(interval, prefix, 'day');
+  }
+  const parsed = parse(interval);
+  if (parsed === null) {
+    throw new Error(`'${prefix}: ${interval}' is not a valid range of time`);
+  }
+  return parsed;
+}
+
+function parseByTimeUnit(interval: string, prefix: string, unit: unitOfTime.Base): number {
+  const parsed = parse(interval.replace(unit, 'ms'));
+  if (parsed === null) {
+    throw new Error(`'${prefix}: ${interval}' is not a valid range of time`);
+  }
+  const end = moment().endOf(unit);
+  const start = moment(end).subtract(parsed, unit);
+  return end.valueOf() - start.valueOf();  
 }
 
 export function validateOffset(interval: string, prefix: string): number {

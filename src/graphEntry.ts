@@ -80,9 +80,15 @@ export default class GraphEntry {
     this._func = aggregateFuncMap[config.group_by.func];
     this._realEnd = new Date();
     this._realStart = new Date();
-    if (this._config.group_by.duration.includes('month')) {
+    if (this._config.group_by.duration.includes('year')) {
+      this._groupByDuration = parse(this._config.group_by.duration, 'year')!;
+      this._groupByDurationUnit = 'years';
+    } else if (this._config.group_by.duration.includes('month')) {
       this._groupByDuration = parse(this._config.group_by.duration, 'month')!;
       this._groupByDurationUnit = 'months';
+    } else if (this._config.group_by.duration.includes('day')) {
+      this._groupByDuration = parse(this._config.group_by.duration, 'day')!;
+      this._groupByDurationUnit = 'days';
     } else {
       this._groupByDuration = parse(this._config.group_by.duration)!;
       this._groupByDurationUnit = 'milliseconds';
@@ -195,9 +201,9 @@ export default class GraphEntry {
       while (start.getTime() - 1 <= currentStart.valueOf()) {
         currentStart = currentStart.subtract(this._groupByDuration, this._groupByDurationUnit);
       }
-      console.log('MS Start: ' + start.getTime() + ' MS Current: ' +  currentStart.valueOf());
+      //console.log('MS Start: ' + start.getTime() + ' MS Current: ' +  currentStart.valueOf());
       startHistory = currentStart.toDate();
-      console.log('Start: ' + start + ' End: ' + end + ' History Start: ' + startHistory);
+      //console.log('Start: ' + start + ' End: ' + end + ' History Start: ' + startHistory);
     }
     if (!this._entityState || this._updating) return false;
     this._updating = true;
