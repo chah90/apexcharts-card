@@ -12,7 +12,7 @@ import {
   HistoryPoint,
   minmax_type,
 } from './types';
-import { getLovelace, handleAction, HomeAssistant } from 'custom-card-helpers';
+import { handleAction, HomeAssistant } from 'custom-card-helpers';
 import localForage from 'localforage';
 import * as pjson from '../package.json';
 import {
@@ -22,17 +22,22 @@ import {
   computeTextColor,
   computeUom,
   decompress,
+  formatApexDate,
+  getLang,
   getPercentFromValue,
   interpolateColor,
+  is12Hour,
   log,
   mergeConfigTemplates,
   mergeDeep,
   mergeDeepConfig,
+  myFormatNumber,
   offsetData,
   prettyPrintTime,
   truncateFloat,
   validateInterval,
   validateOffset,
+  getLovelace,
 } from './utils';
 import ApexCharts from 'apexcharts';
 import { Ripple } from '@material/mwc-ripple';
@@ -148,6 +153,8 @@ class ChartsCard extends LitElement {
 
   private _seriesOffset: number[] = [];
 
+  private _seriesTimeDelta: number[] = [];
+
   private _updateDelay: number = DEFAULT_UPDATE_DELAY;
 
   private _brushInit = false;
@@ -209,7 +216,7 @@ class ChartsCard extends LitElement {
       if (this._config?.experimental?.hidden_by_default) {
         this._config.series_in_graph.forEach((serie, index) => {
           if (serie.show.hidden_by_default) {
-            const name = computeName(index, this._config?.series_in_graph, this._hass?.states);
+            const name = computeName(index, this._config?.series_in_graph, this._entities);
             this._apexChart?.hideSeries(name);
           }
         });
@@ -338,6 +345,9 @@ class ChartsCard extends LitElement {
         if (serie.offset) {
           this._seriesOffset[index] = validateOffset(serie.offset, `series[${index}].offset`);
         }
+        if (serie.time_delta) {
+          this._seriesTimeDelta[index] = validateOffset(serie.time_delta, `series[${index}].time_delta`);
+        }
       });
       if (configDup.update_delay) {
         this._updateDelay = validateInterval(configDup.update_delay, `update_delay`);
@@ -392,6 +402,7 @@ class ChartsCard extends LitElement {
             ['donut', 'pie', 'radialBar'].includes(this._config?.chart_type) &&
             (!serie.group_by || serie.group_by?.func === 'raw') &&
             !serie.data_generator &&
+            !serie.statistics &&
             !serie.offset
           );
           if (!this._headerColors[index]) {
@@ -401,7 +412,7 @@ class ChartsCard extends LitElement {
             this._headerColors[index] = serie.color;
           }
           serie.fill_raw = serie.fill_raw || DEFAULT_FILL_RAW;
-          serie.extend_to_end = serie.extend_to_end !== undefined ? serie.extend_to_end : true;
+          serie.extend_to = serie.extend_to !== undefined ? serie.extend_to : 'end';
           serie.type = this._config?.chart_type ? undefined : serie.type || DEFAULT_SERIE_TYPE;
           if (!serie.group_by) {
             serie.group_by = { duration: DEFAULT_DURATION, func: DEFAULT_FUNC, fill: DEFAULT_GROUP_BY_FILL };
@@ -599,12 +610,63 @@ class ChartsCard extends LitElement {
     };
     return html`
       <div id="header" class=${classMap(classes)}>
-        ${!this._config?.header?.standard_format && this._config?.header?.title
-          ? html`<div id="header__title">${this._config.header.title}</div>`
-          : html``}
+        ${!this._config?.header?.standard_format && this._config?.header?.title ? this._renderTitle() : html``}
         ${this._config?.header?.show_states ? this._renderStates() : html``}
       </div>
     `;
+  }
+
+  private _renderTitle(): TemplateResult {
+    const classes =
+      this._config?.header?.disable_actions ||
+      !this._config?.header?.title_actions ||
+      (this._config?.header?.title_actions?.tap_action?.action === 'none' &&
+        (!this._config?.header?.title_actions?.hold_action?.action ||
+          this._config?.header?.title_actions?.hold_action?.action === 'none') &&
+        (!this._config?.header?.title_actions?.double_tap_action?.action ||
+          this._config?.header?.title_actions?.double_tap_action?.action === 'none'))
+        ? 'disabled'
+        : 'actions';
+
+    return html`<div
+      id="header__title"
+      class="${classes}"
+      @action=${(ev) => {
+        this._handleTitleAction(ev);
+      }}
+      .actionHandler=${actionHandler({
+        hasDoubleClick:
+          this._config?.header?.title_actions?.double_tap_action?.action &&
+          this._config?.header?.title_actions.double_tap_action.action !== 'none',
+        hasHold:
+          this._config?.header?.title_actions?.hold_action?.action &&
+          this._config?.header?.title_actions?.hold_action.action !== 'none',
+      })}
+      @focus="${(ev) => {
+        this.handleRippleFocus(ev, 'title');
+      }}"
+      @blur="${(ev) => {
+        this.handleRippleBlur(ev, 'title');
+      }}"
+      @mousedown="${(ev) => {
+        this.handleRippleActivate(ev, 'title');
+      }}"
+      @mouseup="${(ev) => {
+        this.handleRippleDeactivate(ev, 'title');
+      }}"
+      @touchstart="${(ev) => {
+        this.handleRippleActivate(ev, 'title');
+      }}"
+      @touchend="${(ev) => {
+        this.handleRippleDeactivate(ev, 'title');
+      }}"
+      @touchcancel="${(ev) => {
+        this.handleRippleDeactivate(ev, 'title');
+      }}"
+    >
+      <span>${this._config?.header?.title}</span>
+      <mwc-ripple unbounded id="ripple-title"></mwc-ripple>
+    </div>`;
   }
 
   private _renderStates(): TemplateResult {
@@ -683,22 +745,7 @@ class ChartsCard extends LitElement {
 
   private _renderLastUpdated(): TemplateResult {
     if (this._config?.show?.last_updated) {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      let hours12: any = undefined;
-      if (this._config.hours_12 !== undefined) {
-        hours12 = this._config.hours_12 ? { hour12: true } : { hourCycle: 'h23' };
-      }
-      const lastUpdated = new Intl.DateTimeFormat(this._config.locale || this._hass?.language || 'en', {
-        year: 'numeric',
-        month: 'short',
-        day: 'numeric',
-        hour: 'numeric',
-        minute: 'numeric',
-        second: 'numeric',
-        ...hours12,
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      } as any).format(this._lastUpdated);
-      return html` <div id="last_updated">${lastUpdated}</div> `;
+      return html` <div id="last_updated">${formatApexDate(this._config, this._hass, this._lastUpdated, true)}</div> `;
     }
     return html``;
   }
@@ -756,19 +803,15 @@ class ChartsCard extends LitElement {
           if (!graph) return [];
           const inHeader = this._config?.series[index].show.in_header;
           if (inHeader && inHeader !== 'raw') {
-            // not raw
-            if (graph.history.length === 0) {
-              this._headerState[index] = null;
-            } else if (inHeader === true) {
-              // last
-              const lastState = graph.history[graph.history.length - 1][1];
-              this._headerState[index] = lastState;
-            } else {
+            if (inHeader === 'after_now' || inHeader === 'before_now') {
               // before_now / after_now
               this._headerState[index] = graph.nowValue(
                 now.getTime() + (this._seriesOffset[index] ? this._seriesOffset[index] : 0),
                 inHeader === 'before_now',
               );
+            } else {
+              // not raw
+              this._headerState[index] = graph.lastState;
             }
           }
           if (!this._config?.series[index].show.in_chart && !this._config?.series[index].show.in_brush) {
@@ -780,13 +823,23 @@ class ChartsCard extends LitElement {
             return;
           }
           let data: EntityCachePoints = [];
-          if (this._config?.series[index].extend_to_end && this._config?.series[index].type !== 'column') {
-            // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
-            data = [...graph.history, ...([[end.getTime(), graph.history.slice(-1)[0]![1]]] as EntityCachePoints)];
+          const offset = (this._seriesOffset[index] || 0) - (this._seriesTimeDelta[index] || 0);
+          if (offset) {
+            data = offsetData(graph.history, offset);
           } else {
-            data = graph.history;
+            data = [...graph.history];
           }
-          data = offsetData(data, this._seriesOffset[index]);
+          if (this._config?.series[index].type !== 'column' && this._config?.series[index].extend_to) {
+            // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
+            const lastPoint = data.slice(-1)[0]!;
+            if (this._config?.series[index].extend_to === 'end' && lastPoint[0] < end.getTime()) {
+              // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
+              data.push([end.getTime(), lastPoint[1]]);
+            } else if (this._config?.series[index].extend_to === 'now' && lastPoint[0] < now.getTime()) {
+              // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
+              data.push([now.getTime(), lastPoint[1]]);
+            }
+          }
           const result = this._config?.series[index].invert ? { data: this._invertData(data) } : { data };
           if (this._config?.series[index].show.in_chart) graphData.series.push(result);
           if (this._config?.series[index].show.in_brush) brushData.series.push(result);
@@ -814,8 +867,8 @@ class ChartsCard extends LitElement {
               }
               data = 0;
             } else {
-              const lastState = graph.history[graph.history.length - 1][1];
-              data = lastState === null ? 0 : lastState;
+              const lastState = graph.lastState;
+              data = lastState || 0;
               if (this._config?.series[index].show.in_header !== 'raw') {
                 this._headerState[index] = lastState;
               }
@@ -961,29 +1014,41 @@ class ChartsCard extends LitElement {
           };
           const bgColor = computeColor(this._colors[index]);
           const txtColor = computeTextColor(bgColor);
-          if (!min[0] || !max[0]) return [];
-          return [
-            ...this._getPointAnnotationStyle(
-              min,
-              this._seriesOffset[index],
-              bgColor,
-              txtColor,
-              serie,
-              index,
-              serie.invert,
-              sameDay,
-            ),
-            ...this._getPointAnnotationStyle(
-              max,
-              this._seriesOffset[index],
-              bgColor,
-              txtColor,
-              serie,
-              index,
-              serie.invert,
-              sameDay,
-            ),
-          ];
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          const extremas: any = [];
+          if (min[0] && ['min', 'min+time', true, 'time'].includes(serie.show.extremas)) {
+            const withTime = serie.show.extremas === 'time' || serie.show.extremas === 'min+time';
+            extremas.push(
+              ...this._getPointAnnotationStyle(
+                min,
+                this._seriesOffset[index],
+                bgColor,
+                txtColor,
+                serie,
+                index,
+                serie.invert,
+                sameDay,
+                withTime,
+              ),
+            );
+          }
+          if (max[0] && ['max', 'max+time', true, 'time'].includes(serie.show.extremas)) {
+            const withTime = serie.show.extremas === 'time' || serie.show.extremas === 'max+time';
+            extremas.push(
+              ...this._getPointAnnotationStyle(
+                max,
+                this._seriesOffset[index],
+                bgColor,
+                txtColor,
+                serie,
+                index,
+                serie.invert,
+                sameDay,
+                withTime,
+              ),
+            );
+          }
+          return extremas;
         } else {
           return [];
         }
@@ -1000,6 +1065,7 @@ class ChartsCard extends LitElement {
     index: number,
     invert = false,
     sameDay: boolean,
+    withTime: boolean,
   ) {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const points: any = [];
@@ -1017,7 +1083,7 @@ class ChartsCard extends LitElement {
         fillColor: 'var(--card-background-color)',
       },
       label: {
-        text: truncateFloat(value[1], serie.float_precision)?.toString(),
+        text: myFormatNumber(value[1], this._hass?.locale, serie.float_precision),
         borderColor: 'var(--card-background-color)',
         borderWidth: 2,
         style: {
@@ -1026,16 +1092,18 @@ class ChartsCard extends LitElement {
         },
       },
     });
-    if (serie.show.extremas === 'time') {
+    if (withTime) {
       let bgColorTime = tinycolor(computeColor('var(--card-background-color)'));
       bgColorTime =
         bgColorTime.isValid && bgColorTime.getLuminance() > 0.5 ? bgColorTime.darken(20) : bgColorTime.lighten(20);
       const txtColorTime = computeTextColor(bgColorTime.toHexString());
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const options: any = { timeStyle: 'medium' };
+      let options: any = { timeStyle: 'medium' };
       if (!sameDay) {
         options.dateStyle = 'medium';
       }
+      options = { ...options, ...(is12Hour(this._config, this._hass) ? { hour12: true } : { hourCycle: 'h23' }) };
+      const lang = getLang(this._config, this._hass);
       points.push({
         x: offset ? value[0] - offset : value[0],
         y: invert && value[1] ? -value[1] : value[1],
@@ -1045,9 +1113,7 @@ class ChartsCard extends LitElement {
           size: 0,
         },
         label: {
-          text: `${Intl.DateTimeFormat(this._config?.locale || this._hass?.language || 'en', options).format(
-            value[0],
-          )}`,
+          text: `${Intl.DateTimeFormat(lang, options).format(value[0])}`,
           borderColor: 'var(--card-background-color)',
           offsetY: -22,
           borderWidth: 0,
@@ -1340,7 +1406,8 @@ class ChartsCard extends LitElement {
   }
 
   private _computeLastState(value: number | null, index: number): string | number | null {
-    return truncateFloat(value, this._config?.series[index].float_precision);
+    if (value === null) return value;
+    return myFormatNumber(value, this._hass?.locale, this._config?.series[index].float_precision);
   }
 
   /*
@@ -1417,24 +1484,46 @@ class ChartsCard extends LitElement {
     return;
   }
 
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  private _handleTitleAction(ev: any) {
+    if (ev.detail?.action) {
+      const configDup: ActionsConfig = this._config?.header?.title_actions
+        ? JSON.parse(JSON.stringify(this._config?.header?.title_actions))
+        : {};
+
+      switch (ev.detail.action) {
+        case 'tap':
+        case 'hold':
+        case 'double_tap':
+          configDup.entity = configDup[`${ev.detail.action}_action`]?.entity;
+          // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
+          handleAction(this, this._hass!, configDup, ev.detail.action);
+          break;
+        default:
+          break;
+      }
+    }
+    return;
+  }
+
   // backward compatibility
   @eventOptions({ passive: true })
-  private handleRippleActivate(evt: Event, index: number): void {
+  private handleRippleActivate(evt: Event, index: number | string): void {
     const r = this.shadowRoot?.getElementById(`ripple-${index}`) as Ripple;
     r && typeof r.startFocus === 'function' && r.startPress(evt);
   }
 
-  private handleRippleDeactivate(_, index: number): void {
+  private handleRippleDeactivate(_, index: number | string): void {
     const r = this.shadowRoot?.getElementById(`ripple-${index}`) as Ripple;
     r && typeof r.startFocus === 'function' && r.endPress();
   }
 
-  private handleRippleFocus(_, index: number): void {
+  private handleRippleFocus(_, index: number | string): void {
     const r = this.shadowRoot?.getElementById(`ripple-${index}`) as Ripple;
     r && typeof r.startFocus === 'function' && r.startFocus();
   }
 
-  private handleRippleBlur(_, index: number): void {
+  private handleRippleBlur(_, index: number | string): void {
     const r = this.shadowRoot?.getElementById(`ripple-${index}`) as Ripple;
     r && typeof r.startFocus === 'function' && r.endFocus();
   }

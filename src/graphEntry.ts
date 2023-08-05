@@ -7,15 +7,17 @@ import {
   HassHistoryEntry,
   HistoryBuckets,
   HistoryPoint,
+  Statistics,
+  StatisticValue,
 } from './types';
 import { compress, decompress, log } from './utils';
 import localForage from 'localforage';
 import { HassEntity } from 'home-assistant-js-websocket';
 import { DateRange } from 'moment-range';
-import { moment } from './const';
+import { DEFAULT_STATISTICS_PERIOD, DEFAULT_STATISTICS_TYPE, moment } from './const';
 import parse from 'parse-duration';
 import SparkMD5 from 'spark-md5';
-import { ChartCardSpanExtConfig } from './types-config';
+import { ChartCardSpanExtConfig, StatisticsPeriod } from './types-config';
 import * as pjson from '../package.json';
 import {Moment, unitOfTime} from 'moment';
 
@@ -30,7 +32,7 @@ export default class GraphEntry {
 
   private _updating = false;
 
-  private _cache = true;
+  private _cache: boolean;
 
   // private _hoursToShow: number;
 
@@ -73,7 +75,7 @@ export default class GraphEntry {
       diff: this._diff,
     };
     this._index = index;
-    this._cache = cache;
+    this._cache = config.statistics ? false : cache;
     this._entityID = config.entity;
     this._graphSpan = graphSpan;
     this._config = config;
@@ -121,7 +123,7 @@ export default class GraphEntry {
   }
 
   set cache(cache: boolean) {
-    this._cache = cache;
+    this._cache = this._config.statistics ? false : cache;
   }
 
   get lastState(): number | null {
@@ -261,57 +263,95 @@ export default class GraphEntry {
         history.data.length !== 0 &&
         history.data[history.data.length - 1]
       );
-      const newHistory = await this._fetchRecent(
-        // if data in cache, get data from last data's time + 1ms
-        usableCache
-          ? // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
-            new Date(history!.data[history!.data.length - 1][0] + 1)
-          : new Date(startHistory.getTime() + (this._config.group_by.func !== 'raw' ? 0 : -1)),
-        end,
-        this._config.attribute || this._config.transform ? false : skipInitialState,
-      );
-      if (newHistory && newHistory[0] && newHistory[0].length > 0) {
-        /*
-        hack because HA doesn't return anything if skipInitialState is false
-        when retrieving for attributes so we retrieve it and we remove it.
-        */
-        if ((this._config.attribute || this._config.transform) && skipInitialState) {
-          newHistory[0].shift();
-        }
-        let lastNonNull: number | null = null;
-        if (history && history.data && history.data.length > 0) {
-          lastNonNull = history.data[history.data.length - 1][1];
-        }
-        const newStateHistory: EntityCachePoints = newHistory[0].map((item) => {
-          let currentState: unknown = null;
-          if (this._config.attribute) {
-            if (item.attributes && item.attributes[this._config.attribute] !== undefined) {
-              currentState = item.attributes[this._config.attribute];
-            }
-          } else {
-            currentState = item.state;
-          }
-          if (this._config.transform) {
-            currentState = this._applyTransform(currentState, item);
-          }
-          let stateParsed: number | null = parseFloat(currentState as string);
-          stateParsed = !Number.isNaN(stateParsed) ? stateParsed : null;
-          if (stateParsed === null) {
-            if (this._config.fill_raw === 'zero') {
-              stateParsed = 0;
-            } else if (this._config.fill_raw === 'last') {
-              stateParsed = lastNonNull;
-            }
-          } else {
-            lastNonNull = stateParsed;
-          }
 
-          if (this._config.attribute) {
-            return [new Date(item.last_updated).getTime(), !Number.isNaN(stateParsed) ? stateParsed : null];
-          } else {
-            return [new Date(item.last_changed).getTime(), !Number.isNaN(stateParsed) ? stateParsed : null];
+      // if data in cache, get data from last data's time + 1ms
+      const fetchStart = usableCache
+        ? // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
+          new Date(history!.data[history!.data.length - 1][0] + 1)
+        : new Date(startHistory.getTime() + (this._config.group_by.func !== 'raw' ? 0 : -1));
+      const fetchEnd = end;
+
+      let newStateHistory: EntityCachePoints = [];
+      let updateGraphHistory = false;
+
+      if (this._config.statistics) {
+        const newHistory = await this._fetchStatistics(fetchStart, fetchEnd, this._config.statistics.period);
+        if (newHistory && newHistory.length > 0) {
+          updateGraphHistory = true;
+          let lastNonNull: number | null = null;
+          if (history && history.data && history.data.length > 0) {
+            lastNonNull = history.data[history.data.length - 1][1];
           }
-        });
+          newStateHistory = newHistory.map((item) => {
+            let stateParsed: number | null = null;
+            [lastNonNull, stateParsed] = this._transformAndFill(
+              item[this._config.statistics?.type || DEFAULT_STATISTICS_TYPE],
+              item,
+              lastNonNull,
+            );
+
+            let displayDate: Date | null = null;
+            const startDate = new Date(item.start);
+            if (!this._config.statistics?.align || this._config.statistics?.align === 'middle') {
+              if (this._config.statistics?.period === '5minute') {
+                displayDate = new Date(startDate.getTime() + 150000); // 2min30s
+              } else if (!this._config.statistics?.period || this._config.statistics.period === 'hour') {
+                displayDate = new Date(startDate.getTime() + 1800000); // 30min
+              } else if (this._config.statistics.period === 'day') {
+                displayDate = new Date(startDate.getTime() + 43200000); // 12h
+              } else {
+                displayDate = new Date(startDate.getTime() + 1296000000); // 15d
+              }
+            } else if (this._config.statistics.align === 'start') {
+              displayDate = new Date(item.start);
+            } else {
+              displayDate = new Date(item.end);
+            }
+
+            return [displayDate.getTime(), !Number.isNaN(stateParsed) ? stateParsed : null];
+          });
+        }
+      } else {
+        const newHistory = await this._fetchRecent(
+          fetchStart,
+          fetchEnd,
+          this._config.attribute || this._config.transform ? false : skipInitialState,
+        );
+        if (newHistory && newHistory[0] && newHistory[0].length > 0) {
+          updateGraphHistory = true;
+          /*
+          hack because HA doesn't return anything if skipInitialState is false
+          when retrieving for attributes so we retrieve it and we remove it.
+          */
+          if ((this._config.attribute || this._config.transform) && skipInitialState) {
+            newHistory[0].shift();
+          }
+          let lastNonNull: number | null = null;
+          if (history && history.data && history.data.length > 0) {
+            lastNonNull = history.data[history.data.length - 1][1];
+          }
+          newStateHistory = newHistory[0].map((item) => {
+            let currentState: unknown = null;
+            if (this._config.attribute) {
+              if (item.attributes && item.attributes[this._config.attribute] !== undefined) {
+                currentState = item.attributes[this._config.attribute];
+              }
+            } else {
+              currentState = item.state;
+            }
+            let stateParsed: number | null = null;
+            [lastNonNull, stateParsed] = this._transformAndFill(currentState, item, lastNonNull);
+
+            if (this._config.attribute) {
+              return [new Date(item.last_updated).getTime(), !Number.isNaN(stateParsed) ? stateParsed : null];
+            } else {
+              return [new Date(item.last_changed).getTime(), !Number.isNaN(stateParsed) ? stateParsed : null];
+            }
+          });
+        }
+      }
+
+      if (updateGraphHistory) {
         if (history?.data.length) {
           history.span = this._graphSpan;
           history.last_fetched = new Date();
@@ -357,7 +397,29 @@ export default class GraphEntry {
     return true;
   }
 
-  private _applyTransform(value: unknown, historyItem: HassHistoryEntry): number | null {
+  private _transformAndFill(
+    currentState: unknown,
+    item: HassHistoryEntry | StatisticValue,
+    lastNonNull: number | null,
+  ): [number | null, number | null] {
+    if (this._config.transform) {
+      currentState = this._applyTransform(currentState, item);
+    }
+    let stateParsed: number | null = parseFloat(currentState as string);
+    stateParsed = !Number.isNaN(stateParsed) ? stateParsed : null;
+    if (stateParsed === null) {
+      if (this._config.fill_raw === 'zero') {
+        stateParsed = 0;
+      } else if (this._config.fill_raw === 'last') {
+        stateParsed = lastNonNull;
+      }
+    } else {
+      lastNonNull = stateParsed;
+    }
+    return [lastNonNull, stateParsed];
+  }
+
+  private _applyTransform(value: unknown, historyItem: HassHistoryEntry | StatisticValue): number | null {
     return new Function('x', 'hass', 'entity', `'use strict'; ${this._config.transform}`).call(
       this,
       value,
@@ -413,6 +475,24 @@ export default class GraphEntry {
       last_fetched: new Date(),
       data,
     };
+  }
+
+  private async _fetchStatistics(
+    start: Date | undefined,
+    end: Date | undefined,
+    period: StatisticsPeriod = DEFAULT_STATISTICS_PERIOD,
+  ): Promise<StatisticValue[] | undefined> {
+    const statistics = await this._hass?.callWS<Statistics>({
+      type: 'recorder/statistics_during_period',
+      start_time: start?.toISOString(),
+      end_time: end?.toISOString(),
+      statistic_ids: [this._entityID],
+      period,
+    });
+    if (statistics && this._entityID in statistics) {
+      return statistics[this._entityID];
+    }
+    return undefined;
   }
 
   private _dataBucketer(history: EntityEntryCache, timeRange: DateRange): HistoryBuckets {
@@ -534,6 +614,8 @@ export default class GraphEntry {
   private _median(items: EntityCachePoints) {
     // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
     const itemsDup = this._filterNulls([...items]).sort((a, b) => a[1]! - b[1]!);
+    if (itemsDup.length === 0) return null;
+    if (itemsDup.length === 1) return itemsDup[0][1];
     const mid = Math.floor((itemsDup.length - 1) / 2);
     if (itemsDup.length % 2 === 1) return itemsDup[mid][1];
     // eslint-disable-next-line @typescript-eslint/no-non-null-assertion

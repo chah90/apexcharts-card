@@ -73,8 +73,8 @@ views:
 
           - type: custom:apexcharts-card
             stacked: true
-            span:
-              offset: -1d
+            # span:
+            #   offset: -1d
             series:
               - entity: sensor.random_0_1000
                 name: RAM Usage
@@ -92,6 +92,8 @@ views:
               floating: true
 
           - type: custom:apexcharts-card
+            show:
+              last_updated: true
             update_interval: 2s
             stacked: true
             experimental:
@@ -137,7 +139,8 @@ views:
           - type: custom:apexcharts-card
             graph_span: 200h
             series:
-              - entity: sensor.humidity
+              - entity: sensor.random_0_1000
+                transform: return x / 10;
                 curve: straight
                 show:
                   extremas: true
@@ -229,7 +232,8 @@ views:
             header:
               title: Test
             series:
-              - entity: sensor.humidity
+              - entity: sensor.random_0_1000
+                transform: return x / 10;
                 type: area
                 name: Outside Humidity
                 opacity: 0.3
@@ -246,7 +250,7 @@ views:
                 show:
                   datalabels: true
           - type: sensor
-            entity: sensor.humidity
+            entity: sensor.random_0_1000
             graph: line
 
           - type: custom:apexcharts-card
@@ -254,7 +258,8 @@ views:
             header:
               show: false
             series:
-              - entity: sensor.humidity
+              - entity: sensor.random_0_1000
+                transform: return x / 10;
                 type: line
                 name: Outside Humidity
                 fill_raw: last
@@ -284,7 +289,7 @@ views:
               start: day
             series:
               - entity: sensor.random0_100
-                extend_to_end: false
+                extend_to: false
                 type: column
                 show:
                   datalabels: true
@@ -313,7 +318,7 @@ views:
                   decimalsInFloat: 1
             series:
               - entity: sensor.random0_100
-                extend_to_end: false
+                extend_to: false
                 type: column
                 invert: true
                 float_precision: 3
@@ -324,7 +329,7 @@ views:
                   legend_value: true
                   datalabels: true
               - entity: sensor.random0_100
-                extend_to_end: false
+                extend_to: false
                 type: column
                 group_by:
                   func: avg
@@ -332,7 +337,7 @@ views:
                 show:
                   datalabels: true
               - entity: sensor.random0_100
-                extend_to_end: false
+                extend_to: false
                 type: column
                 group_by:
                   func: avg
@@ -389,13 +394,13 @@ views:
                 unit: °C
                 attribute: temperature
                 fill_raw: last
-                extend_to_end: false
+                extend_to: false
                 group_by:
                   func: avg
                   duration: 1h
               - entity: weather.openweathermap
                 type: line
-                extend_to_end: false
+                extend_to: false
                 unit: °C
                 show:
                   in_header: after_now
@@ -539,7 +544,7 @@ views:
                   duration: 1h
                   func: last
               - entity: sensor.random0_100
-                extend_to_end: false
+                extend_to: false
                 group_by:
                   duration: 1h
                   func: last
@@ -553,7 +558,7 @@ views:
             series:
               - entity: sensor.outside_temperature
                 curve: stepline
-                extend_to_end: true
+                extend_to: end
 
           - type: custom:apexcharts-card
             update_delay: 3s
@@ -792,7 +797,7 @@ views:
               - entity: weather.home
                 type: area
                 fill_raw: last
-                extend_to_end: false
+                extend_to: false
                 color: var(--yellowish)
                 name: Max
                 stroke_width: 2
@@ -803,7 +808,7 @@ views:
               - entity: weather.home
                 type: area
                 fill_raw: last
-                extend_to_end: false
+                extend_to: false
                 color: var(--cyanish)
                 name: Min
                 stroke_width: 2
@@ -814,7 +819,7 @@ views:
               - entity: weather.home
                 type: column
                 fill_raw: last
-                extend_to_end: false
+                extend_to: false
                 color: 'rgba(255, 255, 255, 1)'
                 name: Snow
                 stroke_width: 0
@@ -825,7 +830,7 @@ views:
               - entity: weather.home
                 type: column
                 fill_raw: last
-                extend_to_end: false
+                extend_to: false
                 color: var(--cyanish)
                 name: Rain
                 stroke_width: 0
@@ -904,7 +909,7 @@ views:
               end: week
             all_series_config:
               type: column
-              extend_to_end: false
+              extend_to: false
               group_by:
                 fill: 'null'
             series:
@@ -1152,23 +1157,191 @@ views:
                   duration: 3min
 
   - title: Main2
+    panel: true
+    cards:
+      - type: grid
+        columns: 3
+        cards:
+          - type: custom:apexcharts-card
+            graph_span: 1h
+            header:
+              show: true
+              show_states: true
+            series:
+              - entity: sensor.random_0_1000
+                float_precision: 0
+                show:
+                  in_header: true
+                group_by:
+                  duration: 15min
+                  func: avg
+                header_actions:
+                  tap_action:
+                    action: fire-dom-event
+                    browser_mod:
+                      command: toast
+                      message: Hello, world!
+
+          - type: custom:apexcharts-card
+            graph_span: 1h
+            header:
+              show: true
+              show_states: true
+              title: Test Extremas
+            all_series_config:
+              header_actions:
+                tap_action:
+                  action: fire-dom-event
+                  browser_mod:
+                    command: popup
+                    card:
+                      type: button
+                      entity: sensor.random0_100
+                    style: |
+                      ha-dialog {
+                        --mdc-dialog-max-width: 100vw !important;
+                      }
+                      :host .content {
+                        width: 98vw !important;
+                      }
+                      ha-card {
+                        border-radius: 0.8vw;
+                        opacity: 0.9;
+                      }
+                    title: Synology NAS
+            series:
+              - entity: sensor.random_0_1000
+                name: Min
+                float_precision: 0
+                show:
+                  extremas: min
+                group_by:
+                  duration: 2min
+                  func: avg
+              - entity: sensor.random_0_1000
+                name: Max
+                float_precision: 0
+                transform: return Number(x) + 200;
+                show:
+                  extremas: max
+                group_by:
+                  duration: 2min
+                  func: avg
+              - entity: sensor.random_0_1000
+                name: Min+Time
+                float_precision: 0
+                transform: return Number(x) + 400;
+                show:
+                  extremas: min+time
+                group_by:
+                  duration: 2min
+                  func: avg
+              - entity: sensor.random_0_1000
+                name: Max+Time
+                float_precision: 0
+                transform: return Number(x) + 600;
+                show:
+                  extremas: max+time
+                group_by:
+                  duration: 2min
+                  func: avg
+              - entity: sensor.random_0_1000
+                name: All
+                float_precision: 0
+                transform: return Number(x) + 800;
+                show:
+                  extremas: true
+                group_by:
+                  duration: 2min
+                  func: avg
+          - type: custom:apexcharts-card
+            graph_span: 1h
+            span:
+              start: hour
+            series:
+              - entity: sensor.random0_100
+                name: no extend
+                extend_to: false
+                data_generator: |
+                  const now_minus10 = new Date(start.getTime() + 10 * 1000 * 60);
+                  return [
+                    [start.getTime(), 10],
+                    [now_minus10.getTime(), 10]
+                  ];
+              - entity: sensor.random0_100
+                name: extend to now
+                extend_to: now
+                data_generator: |
+                  const now_minus10 = new Date(start.getTime() + 10 * 1000 * 60);
+                  return [
+                    [start.getTime(), 20],
+                    [now_minus10.getTime(), 20]
+                  ];
+              - entity: sensor.random0_100
+                name: extend to end
+                extend_to: end
+                data_generator: |
+                  const now_minus10 = new Date(start.getTime() + 10 * 1000 * 60);
+                  return [
+                    [start.getTime(), 30],
+                    [now_minus10.getTime(), 30]
+                  ];
+          - type: custom:apexcharts-card
+            graph_span: 2h
+            header:
+              show: true
+              title: second serie should cover first hour
+            all_series_config:
+              stroke_width: 1
+            series:
+              - entity: sensor.random0_100
+              - entity: sensor.random0_100
+                time_delta: -1h
+                offset: -1h
+          - type: custom:apexcharts-card
+            graph_span: 2d
+            span:
+              start: day
+            header:
+              show: true
+              title: Line should not get back in time
+            all_series_config:
+              stroke_width: 1
+              extend_to: now
+            series:
+              - entity: sensor.random0_100
+                data_generator: |
+                  const tomorrow = new Date(start.getTime() + 25 * 1000 * 60 * 60);
+                  const tomorrow2 = new Date(start.getTime() + 28 * 1000 * 60 * 60);
+                  return [
+                    [tomorrow.getTime(), 30],
+                    [tomorrow2.getTime(), 20]
+                  ];
+  - title: Long Term Stats
+    panel: true
     cards:
       - type: custom:apexcharts-card
-        graph_span: 1h
+        cache: false
+        graph_span: 1d
         header:
           show: true
+          title: Test Stats
           show_states: true
+          title_actions:
+            tap_action:
+              action: more-info
+              entity: sensor.random_0_1000
+              confirmation:
+                text: test
+            hold_action:
+              action: more-info
+              entity: sensor.random_0_1000
+        all_series_config:
+          stroke_width: 1
         series:
-          - entity: sensor.random_0_1000
-            float_precision: 0
-            show:
-              in_header: true
-            group_by:
-              duration: 15min
-              func: avg
-            header_actions:
-              tap_action:
-                action: fire-dom-event
-                browser_mod:
-                  command: toast
-                  message: Hello, world!
+          - entity: sensor.today_energy
+            type: column
+            statistics:
+              type: mean
+              period: 5minute
+          - entity: sensor.temperature

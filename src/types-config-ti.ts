@@ -61,6 +61,8 @@ export const ChartCardSpanExtConfig = t.iface([], {
 
 export const ChartCardStartEnd = t.union(t.lit('minute'), t.lit('hour'), t.lit('day'), t.lit('week'), t.lit('month'), t.lit('year'), t.lit('isoWeek'));
 
+export const StatisticsPeriod = t.union(t.lit('5minute'), t.lit('hour'), t.lit('day'), t.lit('month'));
+
 export const ChartCardAllSeriesExternalConfig = t.iface([], {
   "entity": t.opt("string"),
   "attribute": t.opt("string"),
@@ -70,14 +72,20 @@ export const ChartCardAllSeriesExternalConfig = t.iface([], {
   "opacity": t.opt("number"),
   "curve": t.opt(t.union(t.lit('smooth'), t.lit('straight'), t.lit('stepline'))),
   "stroke_width": t.opt("number"),
-  "extend_to_end": t.opt("boolean"),
+  "extend_to": t.opt(t.union(t.lit(false), t.lit('end'), t.lit('now'))),
   "unit": t.opt("string"),
   "invert": t.opt("boolean"),
   "data_generator": t.opt("string"),
+  "statistics": t.opt(t.iface([], {
+    "type": t.opt(t.union(t.lit('mean'), t.lit('max'), t.lit('min'), t.lit('sum'), t.lit('state'))),
+    "period": t.opt("StatisticsPeriod"),
+    "align": t.opt(t.union(t.lit('start'), t.lit('end'), t.lit('middle'))),
+  })),
   "float_precision": t.opt("number"),
   "min": t.opt("number"),
   "max": t.opt("number"),
   "offset": t.opt("string"),
+  "time_delta": t.opt("string"),
   "fill_raw": t.opt("GroupByFill"),
   "show": t.opt("ChartCardSeriesShowConfigExt"),
   "group_by": t.opt(t.iface([], {
@@ -108,7 +116,7 @@ export const ChartCardSeriesShowConfigExt = t.iface([], {
   "in_chart": t.opt("boolean"),
   "datalabels": t.opt(t.union("boolean", t.lit('total'), t.lit('percent'))),
   "hidden_by_default": t.opt("boolean"),
-  "extremas": t.opt(t.union("boolean", t.lit('time'))),
+  "extremas": t.opt(t.union("boolean", t.lit('time'), t.lit('min'), t.lit('max'), t.lit('min+time'), t.lit('max+time'))),
   "in_brush": t.opt("boolean"),
   "offset_in_name": t.opt("boolean"),
 });
@@ -131,6 +139,7 @@ export const ChartCardHeaderExternalConfig = t.iface([], {
   "colorize_states": t.opt("boolean"),
   "standard_format": t.opt("boolean"),
   "disable_actions": t.opt("boolean"),
+  "title_actions": t.opt("ActionsConfig"),
 });
 
 export const ChartCardColorThreshold = t.iface([], {
@@ -219,6 +228,7 @@ const exportedTypeSuite: t.ITypeSuite = {
   ChartCardBrushExtConfig,
   ChartCardSpanExtConfig,
   ChartCardStartEnd,
+  StatisticsPeriod,
   ChartCardAllSeriesExternalConfig,
   ActionsConfig,
   ChartCardSeriesShowConfigExt,

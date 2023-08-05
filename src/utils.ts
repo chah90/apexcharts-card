@@ -5,7 +5,7 @@ import { TinyColor } from '@ctrl/tinycolor';
 import parse from 'parse-duration';
 import { ChartCardExternalConfig, ChartCardPrettyTime, ChartCardSeriesExternalConfig } from './types-config';
 import { DEFAULT_FLOAT_PRECISION, DEFAULT_MAX, DEFAULT_MIN, moment, NO_VALUE } from './const';
-import { HomeAssistant, LovelaceConfig } from 'custom-card-helpers';
+import { formatNumber, FrontendLocaleData, HomeAssistant, LovelaceConfig } from 'custom-card-helpers';
 import {unitOfTime} from 'moment';
 
 export function compress(data: unknown): string {
@@ -71,8 +71,7 @@ export function computeName(
   if (entity) {
     name = series[index].name || entity.attributes?.friendly_name || entity.entity_id || '';
   } else if (entities) {
-    name =
-      series[index].name || entities[index]?.attributes?.friendly_name || entities[entities[index]]?.entity_id || '';
+    name = series[index].name || entities[index]?.attributes?.friendly_name || entities[index]?.entity_id || '';
   }
   return name + (series[index].show?.offset_in_name && series[index].offset ? ` (${series[index].offset})` : '');
 }
@@ -174,13 +173,14 @@ export function getPercentFromValue(value: number, min: number | undefined, max:
   return ((value - lMin) * 100) / (lMax - lMin);
 }
 
-export function getLovelace(): LovelaceConfig | null {
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export function getLovelace(): any | null {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   let root: any = document.querySelector('home-assistant');
   root = root && root.shadowRoot;
   root = root && root.querySelector('home-assistant-main');
   root = root && root.shadowRoot;
-  root = root && root.querySelector('app-drawer-layout partial-panel-resolver');
+  root = root && root.querySelector('app-drawer-layout partial-panel-resolver, ha-drawer partial-panel-resolver');
   root = (root && root.shadowRoot) || root;
   root = root && root.querySelector('ha-panel-lovelace');
   root = root && root.shadowRoot;
@@ -254,8 +254,8 @@ export function is12HourFromLocale(locale: string): boolean {
   return !(new Date(2021, 1, 1, 15, 0, 0, 0).toLocaleTimeString(locale).indexOf('15') > -1);
 }
 
-export function is12Hour(config: ChartCardConfig, hass: HomeAssistant | undefined): boolean {
-  if (config.hours_12 !== undefined) {
+export function is12Hour(config: ChartCardConfig | undefined, hass: HomeAssistant | undefined): boolean {
+  if (config?.hours_12 !== undefined) {
     return config.hours_12;
   } else {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -270,9 +270,44 @@ export function is12Hour(config: ChartCardConfig, hass: HomeAssistant | undefine
       }
     } else {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      return is12HourFromLocale(config.locale || hass?.language || 'en');
+      return is12HourFromLocale(getLang(config, hass));
     }
   }
+}
+
+export function formatApexDate(
+  config: ChartCardConfig,
+  hass: HomeAssistant | undefined,
+  value: Date,
+  withDate = true,
+): string {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const hours12 = is12Hour(config, hass) ? { hour12: true } : { hourCycle: 'h23' };
+  const lang = getLang(config, hass);
+  if (withDate) {
+    return new Intl.DateTimeFormat(lang, {
+      year: 'numeric',
+      month: 'short',
+      day: 'numeric',
+      hour: 'numeric',
+      minute: 'numeric',
+      second: 'numeric',
+      ...hours12,
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    } as any).format(value);
+  } else {
+    return new Intl.DateTimeFormat(lang, {
+      hour: 'numeric',
+      minute: 'numeric',
+      second: 'numeric',
+      ...hours12,
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    } as any).format(value);
+  }
+}
+
+export function getLang(config: ChartCardConfig | undefined, hass: HomeAssistant | undefined): string {
+  return config?.locale || hass?.language || 'en';
 }
 
 export function truncateFloat(
@@ -291,4 +326,22 @@ export function truncateFloat(
     lValue = (lValue as number).toFixed(precision === undefined ? DEFAULT_FLOAT_PRECISION : precision);
   }
   return lValue;
+}
+
+export function myFormatNumber(
+  num: string | number | null | undefined,
+  localeOptions?: FrontendLocaleData,
+  precision?: number | undefined,
+): string | null {
+  let lValue: string | number | null | undefined = num;
+  if (lValue === undefined || lValue === null) return null;
+  if (typeof lValue === 'string') {
+    lValue = parseFloat(lValue);
+    if (Number.isNaN(lValue)) {
+      return num as string;
+    }
+  }
+  return formatNumber(lValue, localeOptions, {
+    maximumFractionDigits: precision === undefined ? DEFAULT_FLOAT_PRECISION : precision,
+  });
 }
