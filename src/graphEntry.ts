@@ -497,7 +497,7 @@ export default class GraphEntry {
 
   private _dataBucketer(history: EntityEntryCache, timeRange: DateRange): HistoryBuckets {
     const ranges = Array.from(timeRange.reverseBy(this._groupByDurationUnit, { step: this._groupByDuration })).reverse();
-    console.log('used ranges: ' + JSON.stringify(ranges));
+    //console.log('used ranges: ' + JSON.stringify(ranges));
     // const res: EntityCachePoints[] = [[]];
     const buckets: HistoryBuckets = [];
     ranges.forEach((range, index) => {
